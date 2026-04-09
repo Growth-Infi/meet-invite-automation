@@ -35,6 +35,7 @@ export const gmailCallback = async (req, res) => {
 
     // Exchange code for tokens
     const { tokens } = await oauth2Client.getToken(code);
+    console.log("Tokens ", tokens);
 
     oauth2Client.setCredentials(tokens);
 

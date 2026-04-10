@@ -54,9 +54,8 @@ export const gmailCallback = async (req, res) => {
       email,
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
-      expiry_date: tokens.expiry_date,
+      expiry_date: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
     });
-
     if (error) {
       console.error("DB ERROR:", error);
       return res.status(500).send("Error saving account");

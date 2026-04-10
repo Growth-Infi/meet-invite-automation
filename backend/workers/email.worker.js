@@ -42,25 +42,34 @@ async function run() {
       .eq("id", batch.campaign_id)
       .single();
 
+    const successIds = [];
+    const failed = [];
+
     for (let r of recipients) {
       try {
         await sendEmail(account, r.email, campaign.meet_link);
-
-        await supabase
-          .from("recipients")
-          .update({ status: "sent" })
-          .eq("id", r.id);
-
-        await sleep(2000);
+        successIds.push(r.id);
       } catch (err) {
-        await supabase
-          .from("recipients")
-          .update({
-            status: "failed",
-            error: err.message,
-          })
-          .eq("id", r.id);
+        failed.push({ id: r.id, error: err.message });
       }
+    }
+    // mark sent
+    if (successIds.length > 0) {
+      await supabase
+        .from("recipients")
+        .update({ status: "sent" })
+        .in("id", successIds);
+    }
+
+    // mark failed
+    for (let f of failed) {
+      await supabase
+        .from("recipients")
+        .update({
+          status: "failed",
+          error: f.error,
+        })
+        .eq("id", f.id);
     }
 
     await supabase

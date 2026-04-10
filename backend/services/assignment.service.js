@@ -11,18 +11,13 @@ export const assignRecipients = async (campaign_id, user_id) => {
     .select("*")
     .eq("campaign_id", campaign_id);
 
-  let i = 0;
-
-  for (let r of recipients) {
+  const updates = recipients.map((r, i) => {
     const account = accounts[i % accounts.length];
+    return {
+      id: r.id,
+      assigned_gmail_account_id: account.id,
+    };
+  });
 
-    await supabase
-      .from("recipients")
-      .update({
-        assigned_gmail_account_id: account.id,
-      })
-      .eq("id", r.id);
-
-    i++;
-  }
+  await supabase.from("recipients").upsert(updates);
 };

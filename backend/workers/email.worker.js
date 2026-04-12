@@ -64,7 +64,7 @@ export const run = async () => {
 
     for (let r of recipients) {
       try {
-        // 1. mark as sending (reserve this recipient)
+        //mark as sending (reserve this recipient)
         await supabase
           .from("recipients")
           .update({ status: "sending" })

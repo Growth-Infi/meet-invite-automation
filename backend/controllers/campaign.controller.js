@@ -28,9 +28,26 @@ export const createCampaign = async (req, res) => {
   if (error) return res.status(500).json(error);
   const rows = emails.map((email) => ({
     campaign_id: campaign.id,
-    email,
+    email: email.trim(),
   }));
-  await supabase.from("recipients").insert(rows);
+
+  // await supabase.from("recipients").insert(rows);
+  const chunkSize = 500;
+  for (let i = 0; i < rows.length; i += chunkSize) {
+    const chunk = rows.slice(i, i + chunkSize);
+
+    const { error: upsertErr } = await supabase
+      .from("recipients")
+      .upsert(chunk, { onConflict: "campaign_id, email" });
+
+    if (upsertErr) {
+      console.error("Chunk upsert failed:", upsertErr);
+      // ?? Delete campaign or handle partial failure
+    } else {
+      console.log(`Processed chunk: ${i + chunk.length} / ${rows.length}`);
+    }
+  }
+  console.log(`✅ ${updates.length} recipients filled with bulk requests `);
 
   res.json(campaign);
 };

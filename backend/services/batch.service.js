@@ -14,7 +14,7 @@ export const createBatches = async (campaign_id) => {
     groups[r.assigned_gmail_account_id].push(r);
   }
 
-  const BATCH_SIZE = 2;
+  const BATCH_SIZE = 25;
   const batchesToInsert = [];
   for (let account_id in groups) {
     const list = groups[account_id];

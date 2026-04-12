@@ -11,7 +11,7 @@ export const sendEmail = async (account, to, meet_link) => {
   const message =
     `From: ${account.email}\r\n` +
     `To: ${to}\r\n` +
-    `Subject: Meeting Invite 12th march\r\n` +
+    `Subject: Meeting Invite \r\n` +
     `Content-Type: text/plain; charset="UTF-8"\r\n` +
     `\r\n` +
     `Join here: ${meet_link}`;

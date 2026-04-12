@@ -25,25 +25,34 @@ export const assignRecipients = async (campaign_id, user_id) => {
     return;
   }
 
-  console.log("Accounts:", accounts);
-  console.log("Recipients:", recipients);
+  // console.log("Accounts:", accounts);
+  // console.log("Recipients:", recipients);
 
-  // 🔥 KEY CHANGE: update each row instead of upsert
-  for (let i = 0; i < recipients.length; i++) {
-    const r = recipients[i];
-    const account = accounts[i % accounts.length];
+  const updates = recipients.map((r, i) => ({
+    id: r.id,
+    email: r.email,
+    assigned_gmail_account_id: accounts[i % accounts.length].id,
+    campaign_id: campaign_id,
+  }));
 
-    const { error } = await supabase
+  const chunkSize = 500;
+  for (let i = 0; i < updates.length; i += chunkSize) {
+    const chunk = updates.slice(i, i + chunkSize);
+
+    const { error: upsertError } = await supabase
       .from("recipients")
-      .update({
-        assigned_gmail_account_id: account.id,
-      })
-      .eq("id", r.id);
+      .upsert(chunk, { onConflict: "id" });
 
-    if (error) {
-      console.error("Update failed for recipient:", r.id, error);
+    if (upsertError) {
+      console.error(`Failed at chunk starting at index ${i}:`, upsertError);
+      //  'break' here or continue
+      throw upsertError;
     }
+
+    console.log(`Processed chunk: ${i + chunk.length} / ${updates.length}`);
   }
 
-  console.log("✅ Recipients assigned successfully");
+  console.log(
+    `✅ ${updates.length} recipients assigned with sender emails in one bulk request!`,
+  );
 };

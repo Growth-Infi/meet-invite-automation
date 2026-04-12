@@ -55,6 +55,7 @@ export const gmailCallback = async (req, res) => {
       access_token: tokens.access_token,
       refresh_token: tokens.refresh_token,
       expiry_date: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+      daily_limit: 250,
     });
     if (error) {
       console.error("DB ERROR:", error);

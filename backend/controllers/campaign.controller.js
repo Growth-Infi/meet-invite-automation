@@ -1,10 +1,14 @@
 import { supabase } from "../lib/supabase.js";
 import { assignRecipients } from "../services/assignment.service.js";
 import { createBatches } from "../services/batch.service.js";
-import { sendEmail } from "../services/sender.service.js";
 
 export const startCampaign = async (req, res) => {
   const { campaign_id, user_id } = req.body;
+
+  await supabase
+    .from("campaigns")
+    .update({ status: "running" })
+    .eq("id", campaign_id);
 
   await assignRecipients(campaign_id, user_id);
   await createBatches(campaign_id);
@@ -13,38 +17,20 @@ export const startCampaign = async (req, res) => {
 };
 
 export const createCampaign = async (req, res) => {
-  const { user_id, name, meet_link } = req.body;
+  const { user_id, name, meet_link, emails } = req.body;
 
-  const { data, error } = await supabase
+  const { data: campaign, error } = await supabase
     .from("campaigns")
-    .insert([{ user_id, name, meet_link }])
+    .insert([{ user_id, name, meet_link, total_recipients: emails.length }])
     .select()
     .single();
 
   if (error) return res.status(500).json(error);
+  const rows = emails.map((email) => ({
+    campaign_id: campaign.id,
+    email,
+  }));
+  await supabase.from("recipients").insert(rows);
 
-  res.json(data);
-};
-
-export const sendTestEmail = async (req, res) => {
-  const { user_id, to } = req.body;
-
-  // get one gmail account
-  const { data: account } = await supabase
-    .from("gmail_accounts")
-    .select("*")
-    .eq("user_id", user_id)
-    .limit(1)
-    .single();
-
-  if (!account) return res.status(400).send("No account found");
-
-  try {
-    await sendEmail(account, to, "https://meet.google.com/test");
-
-    res.send("Email sent 🚀");
-  } catch (err) {
-    console.error(err);
-    res.status(500).send("Failed to send");
-  }
+  res.json(campaign);
 };

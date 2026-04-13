@@ -1,14 +1,13 @@
 import express from "express";
-import cors from "cors";
 import dotenv from "dotenv";
+import gmailRoutes from "./routes/gmail.routes.js";
+import campaignRoutes from "./routes/campaign.routes.js";
+import { run } from "./workers/email.worker.js";
 import ApiError from "./utils/apiError.js";
-import gmailRoutes from "./routes/gmail.js";
 
 dotenv.config();
 
 const app = express();
-
-app.use(cors());
 app.use(express.json());
 
 app.use("/gmail", gmailRoutes);
@@ -21,7 +20,8 @@ app.use((err, req, res, next) => {
   }
   return res.status(500).json({ message: "Internal Service Error" })
 })
-
+app.use("/campaign", campaignRoutes);
+run();
 app.listen(process.env.PORT, () => {
   console.log(`Server running on port ${process.env.PORT}`);
 });

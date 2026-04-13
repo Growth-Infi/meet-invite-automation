@@ -3,7 +3,7 @@ import {
   connectGmail,
   gmailCallback,
   getAccounts,
-} from "../controllers/gmailController.js";
+} from "../controllers/gmail.controller.js";
 
 const router = express.Router();
 

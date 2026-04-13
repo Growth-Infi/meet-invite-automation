@@ -5,7 +5,7 @@
   "main": "index.js",
   "scripts": {
     "dev": "node --watch --env-file=.env server",
-    "workers": "node worker/startWorkers.js",
+    "workers": "node workers/startWorkers.js",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
   "keywords": [],

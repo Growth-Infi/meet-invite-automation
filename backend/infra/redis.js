@@ -8,7 +8,9 @@ const REDIS_URL = process.env.REDIS_URL || `redis://localhost:6379`
 let connection = null
 
 export async function checkRedisConnection() {
-    if (!connection) connection = new IORedis(`${REDIS_URL}`);
+    if (!connection) connection = new IORedis(`${REDIS_URL}`, {
+        maxRetriesPerRequest: null
+    });
     try {
         await connection.ping()
         console.log('[redis] Connection verified')
@@ -20,7 +22,9 @@ export async function checkRedisConnection() {
 
 export function getRedisConnection() {
     if (!connection) {
-        connection = new IORedis(`${REDIS_URL}`);
+        connection = new IORedis(`${REDIS_URL}`, {
+            maxRetriesPerRequest: null
+        });
 
         connection.on('error', (err) => {
             console.error('[redis] Connection error:', err.message)

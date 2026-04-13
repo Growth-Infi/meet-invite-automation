@@ -1,6 +1,6 @@
 import { Worker } from 'bullmq';
-import { getRedisConnection } from '../infra/redis';
-import { supabase } from '../lib/supabase';
+import { getRedisConnection } from '../infra/redis.js';
+import { supabase } from '../lib/supabase.js';
 import { google } from 'googleapis'
 
 const connection = getRedisConnection();

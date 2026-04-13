@@ -11,6 +11,7 @@ const app = express();
 app.use(express.json());
 
 app.use("/gmail", gmailRoutes);
+app.use("/campaign", campaignRoutes);
 
 //global error handler 
 app.use((err, req, res, next) => {
@@ -20,8 +21,7 @@ app.use((err, req, res, next) => {
   }
   return res.status(500).json({ message: "Internal Service Error" })
 })
-app.use("/campaign", campaignRoutes);
-run();
+// run();
 app.listen(process.env.PORT, () => {
   console.log(`Server running on port ${process.env.PORT}`);
 });

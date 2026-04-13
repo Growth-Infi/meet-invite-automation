@@ -6,6 +6,10 @@ export const createBatches = async (campaign_id) => {
     .select("*")
     .eq("campaign_id", campaign_id);
 
+  for (const batch of batches) {
+    await enqueueJob({ batch_id: batch.id })
+  }
+
   const groups = {};
   for (let r of recipients) {
     if (!groups[r.assigned_gmail_account_id]) {

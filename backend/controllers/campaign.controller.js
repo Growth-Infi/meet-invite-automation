@@ -47,7 +47,7 @@ export const createCampaign = async (req, res) => {
       console.log(`Processed chunk: ${i + chunk.length} / ${rows.length}`);
     }
   }
-  console.log(`✅ ${updates.length} recipients filled with bulk requests `);
+  console.log(`✅ ${rows.length} recipients filled with bulk requests `);
 
   res.json(campaign);
 };

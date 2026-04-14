@@ -4,7 +4,8 @@ export const assignRecipients = async (campaign_id, user_id) => {
   const { data: accounts, error: accError } = await supabase
     .from("gmail_accounts")
     .select("*")
-    .eq("user_id", user_id);
+    .eq("user_id", user_id)
+    .eq("status", "active");
 
   if (accError) {
     console.error("Accounts fetch error:", accError);
@@ -15,8 +16,8 @@ export const assignRecipients = async (campaign_id, user_id) => {
     throw new Error("No Gmail accounts found for this user");
   }
 
-  const { data: recipients, error: recError } = await supabase
-    .from("recipients")
+  const { data: recipients_d, error: recError } = await supabase
+    .from("recipients_d")
     .select("*")
     .eq("campaign_id", campaign_id);
 
@@ -26,9 +27,9 @@ export const assignRecipients = async (campaign_id, user_id) => {
   }
 
   // console.log("Accounts:", accounts);
-  // console.log("Recipients:", recipients);
+  // console.log("Recipients:", recipients_d);
 
-  const updates = recipients.map((r, i) => ({
+  const updates = recipients_d.map((r, i) => ({
     id: r.id,
     email: r.email,
     assigned_gmail_account_id: accounts[i % accounts.length].id,
@@ -40,7 +41,7 @@ export const assignRecipients = async (campaign_id, user_id) => {
     const chunk = updates.slice(i, i + chunkSize);
 
     const { error: upsertError } = await supabase
-      .from("recipients")
+      .from("recipients_d")
       .upsert(chunk, { onConflict: "id" });
 
     if (upsertError) {
@@ -53,6 +54,6 @@ export const assignRecipients = async (campaign_id, user_id) => {
   }
 
   console.log(
-    `✅ ${updates.length} recipients assigned with sender emails in one bulk request!`,
+    `✅ ${updates.length} recipients_d assigned with sender emails in one bulk request!`,
   );
 };

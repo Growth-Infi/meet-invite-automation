@@ -90,3 +90,53 @@ export const getAccounts = async (req, res) => {
 
   res.json(data);
 };
+
+export const updateGmailStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!id) {
+      return res.status(400).json({ error: "Account id is required" });
+    }
+
+    if (!status || !["active", "paused"].includes(status)) {
+      return res.status(400).json({
+        error: "Valid status required (active | paused)",
+      });
+    }
+
+    const { data: account, error: fetchError } = await supabase
+      .from("gmail_accounts")
+      .select("id, status")
+      .eq("id", id)
+      .single();
+
+    if (fetchError || !account) {
+      return res.status(404).json({ error: "Gmail account not found" });
+    }
+
+    if (account.status === status) {
+      return res.status(400).json({
+        error: `Account already ${status}`,
+      });
+    }
+
+    //  Update
+    const { error: updateError } = await supabase
+      .from("gmail_accounts")
+      .update({ status })
+      .eq("id", id);
+
+    if (updateError) {
+      return res.status(500).json({ error: updateError.message });
+    }
+
+    return res.json({
+      message: `Gmail account ${status} successfully`,
+    });
+  } catch (err) {
+    console.error("Update Gmail Status Error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};

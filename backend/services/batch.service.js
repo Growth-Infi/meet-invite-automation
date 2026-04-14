@@ -1,13 +1,13 @@
 import { supabase } from "../lib/supabase.js";
 
 export const createBatches = async (campaign_id) => {
-  const { data: recipients } = await supabase
-    .from("recipients")
+  const { data: recipients_d } = await supabase
+    .from("recipients_d")
     .select("*")
     .eq("campaign_id", campaign_id);
 
   const groups = {};
-  for (let r of recipients) {
+  for (let r of recipients_d) {
     if (!groups[r.assigned_gmail_account_id]) {
       groups[r.assigned_gmail_account_id] = [];
     }

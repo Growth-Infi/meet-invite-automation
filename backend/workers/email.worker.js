@@ -2,15 +2,12 @@ import { supabase } from "../lib/supabase.js";
 import { sendEmail } from "../services/sender.service.js";
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-
+const MAX_RETRIES = 3;
 export const run = async () => {
   while (true) {
-    const { data: batchData } = await supabase
-      .from("email_batches")
-      .select("*")
-      .eq("status", "pending")
-      .limit(1);
-    const batch = batchData?.[0];
+    let stoppedEarly = false;
+
+    const { data: batch } = await supabase.rpc("claim_next_batch");
     if (!batch) {
       await sleep(3000);
       continue;
@@ -21,33 +18,61 @@ export const run = async () => {
       .update({ status: "processing" })
       .eq("id", batch.id);
 
-    const { data: recipients } = await supabase
-      .from("recipients")
+    const now = new Date().toISOString();
+    // console.log("Current time isoString ", now);
+
+    const { data: recipients_d } = await supabase
+      .from("recipients_d")
       .select("*")
       .eq("campaign_id", batch.campaign_id)
       .eq("assigned_gmail_account_id", batch.gmail_account_id)
-      .eq("status", "pending")
+      .or(
+        `status.eq.pending, and(status.eq.failed,retry_count.lt.${MAX_RETRIES},next_retry_at.lte.${now})`,
+      )
       .limit(batch.batch_size);
 
-    if (!recipients || recipients.length === 0) {
+    if (!recipients_d || recipients_d.length === 0) {
       await supabase
         .from("email_batches")
         .update({ status: "completed" })
         .eq("id", batch.id);
       continue;
     }
-    const { data: account } = await supabase
-      .from("gmail_accounts")
-      .select("*")
-      .eq("id", batch.gmail_account_id)
-      .single();
 
-    const { data: campaign } = await supabase
-      .from("campaigns")
-      .select("*")
-      .eq("id", batch.campaign_id)
-      .single();
+    const [accountRes, campaignRes] = await Promise.all([
+      supabase
+        .from("gmail_accounts")
+        .select("*")
+        .eq("id", batch.gmail_account_id)
+        .single(),
+      supabase
+        .from("campaigns")
+        .select("*")
+        .eq("id", batch.campaign_id)
+        .single(),
+    ]);
 
+    const account = accountRes.data;
+    const campaign = campaignRes.data;
+
+    if (account.status !== "active") {
+      await supabase
+        .from("email_batches")
+        .update({ status: "pending" })
+        .eq("id", batch.id);
+      console.log("Sender email paused ", account.email);
+      continue;
+    }
+
+    if (!campaign || campaign.status !== "running") {
+      await supabase
+        .from("email_batches")
+        .update({ status: "pending" })
+        .eq("id", batch.id);
+      console.log("Campaign paused  ", campaign.name);
+      await sleep(2000);
+      continue;
+    }
     const today = new Date().toDateString();
     const last = account.last_sent_at
       ? new Date(account.last_sent_at).toDateString()
@@ -62,22 +87,46 @@ export const run = async () => {
     const successIds = [];
     const failed = [];
 
-    for (let r of recipients) {
+    for (let i = 0; i < recipients_d.length; i++) {
+      const r = recipients_d[i];
       try {
-        //mark as sending (reserve this recipient)
-        await supabase
-          .from("recipients")
-          .update({ status: "sending" })
-          .eq("id", r.id);
+        if (i % 1 == 0) {
+          //check if campaign paused
+          const { data: latestCampaign } = await supabase
+            .from("campaigns")
+            .select("status")
+            .eq("id", batch.campaign_id)
+            .single();
+
+          if (latestCampaign.status !== "running") {
+            console.log("Campaign paused mid-batch");
+            stoppedEarly = true;
+            break;
+          }
+
+          //check if the sender mail account of this batch is paused
+          const { data: latestAccount } = await supabase
+            .from("gmail_accounts")
+            .select("status")
+            .eq("id", account.id)
+            .single();
+          if (latestAccount.status !== "active") {
+            console.log(`Sender mail ${account.email} paused mid-batch`);
+            stoppedEarly = true;
+            break;
+          }
+        }
+
         //rpc function to check if we can send mail and increment the sent_count
         const { data: canSend } = await supabase.rpc(
           "increment_account_sent_safe",
           { account_id: account.id },
         );
         if (!canSend) {
+          stoppedEarly = true;
           console.log("🚫 Limit reached to send mails:", account.email);
           await supabase
-            .from("recipients")
+            .from("recipients_d")
             .update({ status: "pending" })
             .eq("id", r.id);
 
@@ -86,50 +135,112 @@ export const run = async () => {
         await sendEmail(account, r.email, campaign.meet_link);
         successIds.push(r.id);
 
-        // Random delay between 8 and 20 seconds
+        // Random delay between 9 and 20 seconds
         const randomDelay = Math.floor(
-          Math.random() * (20000 - 8000 + 1) + 10000,
+          Math.random() * (20000 - 9000 + 1) + 10000,
         );
         await sleep(randomDelay);
-
-        // small delay (to avoid spam)
-        // await sleep(500);
       } catch (err) {
-        if (err.code === 429 || err.message.includes("rate limit")) {
-          console.log("🛑 Google is rate limiting us. Stopping batch.");
-          break;
+        const status_retry = err.response?.status;
+
+        const isRetryable =
+          err.code === 429 ||
+          status_retry === 429 ||
+          err.code === "ECONNRESET" ||
+          err.code === "ETIMEDOUT" ||
+          err.code === "EAI_AGAIN" ||
+          (status_retry >= 500 && status_retry < 600) ||
+          /rate|timeout|network/i.test(err.message || "");
+
+        if (isRetryable) {
+          stoppedEarly = true;
+          const retryCount = (r.retry_count || 0) + 1;
+
+          if (retryCount > MAX_RETRIES) {
+            //retry attempts exceeded
+            console.error(
+              `Retry limit exceeded (retry count - ${retryCount}), and thus stopping permanent. Error-  `,
+              err.message,
+            );
+
+            await supabase
+              .from("recipients_d")
+              .update({
+                status: "failed_final",
+                error: err.message,
+              })
+              .eq("id", r.id);
+            continue;
+          }
+
+          const baseDelay = 2 * 60 * 1000;
+          const exponentialDelay = baseDelay * Math.pow(2, retryCount - 1);
+          const jitter = Math.random() * 1000;
+          const delayMs = Math.min(exponentialDelay + jitter, 30 * 60 * 1000);
+
+          const nextRetry = new Date(Date.now() + delayMs);
+
+          await supabase
+            .from("recipients_d")
+            .update({
+              status: "failed",
+              retry_count: retryCount,
+              last_attempt_at: new Date(),
+              next_retry_at: nextRetry,
+              error: err.message,
+            })
+            .eq("id", r.id);
+        } else {
+          console.error("ERROR, and not retrying  ", err.message);
+
+          await supabase
+            .from("recipients_d")
+            .update({
+              status: "failed_final",
+              error: err.message,
+            })
+            .eq("id", r.id);
         }
+
         failed.push({ id: r.id, error: err.message });
       }
     }
 
     // calling function created on database for atomic increment for sent_count for a campaign
-    await supabase.rpc("increment_campaign_sent", {
-      campaign_id: batch.campaign_id,
-      inc: successIds.length,
-    });
-    // mark sent
     if (successIds.length > 0) {
+      await supabase.rpc("increment_campaign_sent", {
+        campaign_id: batch.campaign_id,
+        inc: successIds.length,
+      });
+
+      // mark sent for all success recipients
       await supabase
-        .from("recipients")
+        .from("recipients_d")
         .update({ status: "sent", sent_at: new Date() })
         .in("id", successIds);
     }
 
-    // mark failed
-    for (let f of failed) {
-      await supabase
-        .from("recipients")
-        .update({
-          status: "failed",
-          error: f.error,
-        })
-        .eq("id", f.id);
-    }
-
+    // email_batch status update
     await supabase
       .from("email_batches")
-      .update({ status: "completed", sent_count: successIds.length })
+      .update({
+        status: stoppedEarly ? "pending" : "completed",
+        sent_count: successIds.length,
+      })
       .eq("id", batch.id);
+
+    const { count } = await supabase
+      .from("recipients_d")
+      .select("*", { count: "exact", head: true })
+      .eq("campaign_id", batch.campaign_id)
+      .in("status", ["pending", "failed"]);
+    if (count === 0) {
+      await supabase
+        .from("campaigns")
+        .update({ status: "completed" })
+        .eq("id", batch.campaign_id);
+
+      console.log("🎉 Campaign completed:", batch.campaign_id);
+    }
   }
 };

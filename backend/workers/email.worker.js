@@ -31,12 +31,39 @@ export const run = async () => {
       )
       .limit(batch.batch_size);
 
+    // if (!recipients_d || recipients_d.length === 0) {
+    //   await supabase
+    //     .from("email_batches")
+    //     .update({ status: "completed" })
+    //     .eq("id", batch.id);
+    //   continue;
+    // }
+
     if (!recipients_d || recipients_d.length === 0) {
       await supabase
         .from("email_batches")
         .update({ status: "completed" })
         .eq("id", batch.id);
       continue;
+    }
+    // Check if ANY work remains for this batch
+    const { count: remaining } = await supabase
+      .from("recipients_d")
+      .select("*", { count: "exact", head: true })
+      .eq("campaign_id", batch.campaign_id)
+      .eq("assigned_gmail_account_id", batch.gmail_account_id)
+      .in("status", ["pending", "failed"]);
+
+    if (remaining === 0) {
+      await supabase
+        .from("email_batches")
+        .update({ status: "completed" })
+        .eq("id", batch.id);
+    } else {
+      await supabase
+        .from("email_batches")
+        .update({ status: "pending" })
+        .eq("id", batch.id);
     }
 
     const [accountRes, campaignRes] = await Promise.all([
@@ -90,28 +117,28 @@ export const run = async () => {
     for (let i = 0; i < recipients_d.length; i++) {
       const r = recipients_d[i];
       try {
-        if (i % 1 == 0) {
-          //check if campaign paused
-          const { data: latestCampaign } = await supabase
-            .from("campaigns")
-            .select("status")
-            .eq("id", batch.campaign_id)
-            .single();
+        if (i % 5 == 0) {
+          //check if campaign or any sender mail account paused
+          const [latestCampaign, latestAccount] = await Promise.all([
+            supabase
+              .from("campaigns")
+              .select("status")
+              .eq("id", batch.campaign_id)
+              .single(),
+            supabase
+              .from("gmail_accounts")
+              .select("status")
+              .eq("id", account.id)
+              .single(),
+          ]);
 
-          if (latestCampaign.status !== "running") {
-            console.log("Campaign paused mid-batch");
-            stoppedEarly = true;
-            break;
-          }
+          const isCampaignPaused = latestCampaign.data?.status !== "running";
+          const isAccountInactive = latestAccount.data?.status !== "active";
 
-          //check if the sender mail account of this batch is paused
-          const { data: latestAccount } = await supabase
-            .from("gmail_accounts")
-            .select("status")
-            .eq("id", account.id)
-            .single();
-          if (latestAccount.status !== "active") {
-            console.log(`Sender mail ${account.email} paused mid-batch`);
+          if (isCampaignPaused || isAccountInactive) {
+            console.log(
+              `Stopping mid-batch: ${isCampaignPaused ? "Campaign paused" : "Account inactive"}`,
+            );
             stoppedEarly = true;
             break;
           }
@@ -221,11 +248,16 @@ export const run = async () => {
     }
 
     // email_batch status update
+    if (successIds.length > 0) {
+      await supabase.rpc("increment_batch_sent", {
+        batch_id: batch.id,
+        inc: successIds.length,
+      });
+    }
     await supabase
       .from("email_batches")
       .update({
         status: stoppedEarly ? "pending" : "completed",
-        sent_count: successIds.length,
       })
       .eq("id", batch.id);
 

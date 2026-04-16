@@ -56,6 +56,7 @@ export const gmailCallback = async (req, res) => {
       refresh_token: tokens.refresh_token,
       expiry_date: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
       daily_limit: 250,
+      status: "active",
     });
     if (error) {
       console.error("DB ERROR:", error);
@@ -94,15 +95,17 @@ export const getAccounts = async (req, res) => {
 export const updateGmailStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    const { status, user_id } = req.body;
 
     if (!id) {
       return res.status(400).json({ error: "Account id is required" });
     }
-
+    if (!user_id) {
+      return res.status(400).json({ error: "user_id  is required" });
+    }
     if (!status || !["active", "paused"].includes(status)) {
       return res.status(400).json({
-        error: "Valid status required (active | paused)",
+        error: "Status must be 'active' or 'paused'",
       });
     }
 
@@ -110,6 +113,7 @@ export const updateGmailStatus = async (req, res) => {
       .from("gmail_accounts")
       .select("id, status")
       .eq("id", id)
+      .eq("user_id", user_id)
       .single();
 
     if (fetchError || !account) {
@@ -126,14 +130,17 @@ export const updateGmailStatus = async (req, res) => {
     const { error: updateError } = await supabase
       .from("gmail_accounts")
       .update({ status })
-      .eq("id", id);
+      .eq("id", id)
+      .eq("user_id", user_id);
 
     if (updateError) {
+      console.error(updateError);
       return res.status(500).json({ error: updateError.message });
     }
 
     return res.json({
-      message: `Gmail account ${status} successfully`,
+      success: true,
+      message: `Account ${status}`,
     });
   } catch (err) {
     console.error("Update Gmail Status Error:", err);

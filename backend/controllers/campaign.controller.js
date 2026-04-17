@@ -1,7 +1,31 @@
 import { supabase } from "../lib/supabase.js";
 import { assignRecipients } from "../services/assignment.service.js";
-import { createBatches } from "../services/batch.service.js";
+import { emailQueue } from "../lib/queue.js";
 
+export const getCampaigns = async (req, res) => {
+  try {
+    const { user_id } = req.query;
+
+    if (!user_id) {
+      return res.status(400).json({ error: "user_id is required" });
+    }
+
+    const { data, error } = await supabase
+      .from("campaigns")
+      .select("*")
+      .eq("user_id", user_id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.json(data);
+  } catch (err) {
+    console.error("Get Campaigns Error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
 export const createCampaign = async (req, res) => {
   try {
     const { user_id, name, meet_link, emails } = req.body;
@@ -101,11 +125,35 @@ export const startCampaign = async (req, res) => {
       return res.status(500).json({ error: updateError.message });
     }
 
-    //  Run services
+    //  assign sender emails to recipoents
     await assignRecipients(id, user_id);
-    await createBatches(id);
 
-    return res.json({ message: "Campaign started" });
+    const { data: recipients } = await supabase
+      .from("recipients_d")
+      .select("*")
+      .eq("campaign_id", id);
+
+    for (const r of recipients) {
+      await emailQueue.add(
+        "send-email",
+        {
+          recipient_id: r.id,
+          email: r.email,
+          campaign_id: id,
+          account_id: r.assigned_gmail_account_id,
+        },
+        {
+          attempts: 3,
+          backoff: {
+            type: "exponential",
+            delay: 2 * 60 * 1000,
+          },
+          removeOnComplete: true,
+          removeOnFail: false,
+        },
+      );
+    }
+    return res.json({ message: "Campaign started + jobs queued" });
   } catch (err) {
     console.error("Start Campaign Error:", err);
     return res.status(500).json({ error: "Internal server error" });

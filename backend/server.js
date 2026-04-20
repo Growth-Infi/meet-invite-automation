@@ -5,6 +5,7 @@ import campaignRoutes from "./routes/campaign.routes.js";
 import "./config.js";
 import { startScheduler } from "./scheduler.js";
 import cors from "cors";
+import "./workers/email.worker.js";
 dotenv.config();
 
 const app = express();

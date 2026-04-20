@@ -5,12 +5,15 @@ import {
   pauseCampaign,
   resumeCampaign,
   getCampaigns,
-  // getSpecificCompaign,
+  getCampaignRecipients,
+  getCampaignById,
 } from "../controllers/campaign.controller.js";
 const router = express.Router();
 
 router.get("/", getCampaigns);
-// router.get(":/id/campaign", getSpecificCompaign);
+router.get("/:id/recipients", getCampaignRecipients);
+router.get("/:id", getCampaignById);
+
 router.post("/create", createCampaign);
 router.patch("/:id/start", startCampaign);
 router.patch("/:id/pause", pauseCampaign);

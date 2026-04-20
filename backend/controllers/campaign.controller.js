@@ -26,6 +26,68 @@ export const getCampaigns = async (req, res) => {
     return res.status(500).json({ error: "Internal server error" });
   }
 };
+export const getCampaignById = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { user_id } = req.query;
+
+    if (!id || !user_id) {
+      return res.status(400).json({
+        error: "campaign id and user_id are required",
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("campaigns")
+      .select("*")
+      .eq("id", id)
+      .eq("user_id", user_id)
+      .single();
+
+    if (error || !data) {
+      return res.status(404).json({ error: "Campaign not found" });
+    }
+
+    return res.json(data);
+  } catch (err) {
+    console.error("Get Campaign By ID Error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+export const getCampaignRecipients = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({
+        error: "campaign id is required",
+      });
+    }
+
+    const { data, error } = await supabase
+      .from("recipients_d")
+      .select(
+        `id,
+        email,
+        status,
+        error,
+        sent_at,
+        assigned_gmail_account_id`,
+      )
+      .eq("campaign_id", id)
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      return res.status(500).json({ error: error.message });
+    }
+
+    return res.json(data);
+  } catch (err) {
+    console.error("Get Campaign Recipients Error:", err);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+};
 export const createCampaign = async (req, res) => {
   try {
     const { user_id, name, meet_link, emails } = req.body;

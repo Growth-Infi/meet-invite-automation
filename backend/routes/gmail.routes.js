@@ -10,7 +10,7 @@ const router = express.Router();
 
 router.get("/connect", connectGmail);
 router.get("/callback", gmailCallback);
-router.get("/accounts", getAccounts);
+router.get("/accounts", getAccounts); //active or paused
 router.patch("/:id/status", updateGmailStatus);
 
 export default router;

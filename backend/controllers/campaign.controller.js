@@ -128,31 +128,9 @@ export const startCampaign = async (req, res) => {
     //  assign sender emails to recipoents
     await assignRecipients(id, user_id);
 
-    const { data: recipients } = await supabase
-      .from("recipients_d")
-      .select("*")
-      .eq("campaign_id", id);
-
-    for (const r of recipients) {
-      await emailQueue.add(
-        "send-email",
-        {
-          recipient_id: r.id,
-          email: r.email,
-          campaign_id: id,
-          account_id: r.assigned_gmail_account_id,
-        },
-        {
-          attempts: 3,
-          backoff: {
-            type: "exponential",
-            delay: 2 * 60 * 1000,
-          },
-          removeOnComplete: true,
-          removeOnFail: false,
-        },
-      );
-    }
+    return res.json({
+      message: "Campaign started. Scheduler will handle sending.",
+    });
     return res.json({ message: "Campaign started + jobs queued" });
   } catch (err) {
     console.error("Start Campaign Error:", err);

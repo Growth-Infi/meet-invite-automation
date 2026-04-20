@@ -16,7 +16,7 @@ export const connectGmail = (req, res) => {
       "https://www.googleapis.com/auth/gmail.send",
       "https://www.googleapis.com/auth/userinfo.email",
     ],
-    prompt: "consent",
+    prompt: "consent select_account",
     state: user_id,
   });
 

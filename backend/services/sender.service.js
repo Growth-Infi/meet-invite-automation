@@ -20,10 +20,11 @@ export const sendEmail = async (account, to, meet_link) => {
     .replace(/\+/g, "-")
     .replace(/\//g, "_");
 
-  await gmail.users.messages.send({
+  const res = await gmail.users.messages.send({
     userId: "me",
     requestBody: {
       raw: encoded,
     },
   });
+  console.log("After sending mail ", res);
 };

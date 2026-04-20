@@ -46,26 +46,13 @@ const worker = new Worker(
       //  DO NOT retry these
       if (!campaign || campaign.status === "paused") {
         console.log(`Campaign ${campaign_id} paused. Snoozing job...`);
-        await job.moveToDelayed(Date.now() + 1000);
+        await job.moveToDelayed(Date.now() + 10 * 1000); //10sec check again from waiting queue
         return;
       }
       if (!account || account.status !== "active") {
         console.log(`Account ${account_id} not active. Snoozing job...`);
-        await job.moveToDelayed(Date.now() + 1000);
+        await job.moveToDelayed(Date.now() + 1000); //30sec check again from waiting queue
         return;
-      }
-
-      // reset daily
-      const today = new Date().toDateString();
-      const last = account.last_sent_at
-        ? new Date(account.last_sent_at).toDateString()
-        : null;
-
-      if (last !== today) {
-        await supabase
-          .from("gmail_accounts")
-          .update({ sent_today: 0 })
-          .eq("id", account.id);
       }
 
       const { data: canSend } = await supabase.rpc(
@@ -82,8 +69,6 @@ const worker = new Worker(
         return;
       }
 
-      const jitter = Math.floor(Math.random() * 2000); // 0–2 sec
-      await sleep(1000 + jitter);
       console.log("Sending email to:", email);
       await sendEmail(account, email, campaign.meet_link);
 
@@ -98,14 +83,13 @@ const worker = new Worker(
       await sleep(4000); //total 5 sec per job
     } catch (err) {
       console.error("Worker error:", err.message);
-      if (err.code === 429) {
+
+      if (isRetryableError(err)) {
         console.log("Rate limited → slowing down...");
         await sleep(10000); // wait 10 sec
-        throw err;
-      }
-      if (isRetryableError(err)) {
         throw err; //  BullMQ retries
       } else {
+        console.error("ERROR - Not a Rate-Limit ERROR ", err);
         //  mark permanently failed
         await supabase
           .from("recipients_d")
@@ -121,10 +105,6 @@ const worker = new Worker(
   },
   {
     connection,
-    concurrency: 5,
-    limiter: {
-      max: 100,
-      duration: 60000,
-    },
+    concurrency: 2,
   },
 );

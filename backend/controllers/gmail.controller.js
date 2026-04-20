@@ -1,4 +1,4 @@
-import { oauth2Client } from "../lib/google.js";
+import { createOAuthClient } from "../lib/google.js";
 import { google } from "googleapis";
 import { supabase } from "../lib/supabase.js";
 
@@ -9,6 +9,7 @@ export const connectGmail = (req, res) => {
   if (!user_id) {
     return res.status(400).send("Missing user_id");
   }
+  const oauth2Client = createOAuthClient();
 
   const url = oauth2Client.generateAuthUrl({
     access_type: "offline",
@@ -32,6 +33,7 @@ export const gmailCallback = async (req, res) => {
     if (!code) {
       return res.status(400).send("Missing code");
     }
+    const oauth2Client = createOAuthClient();
 
     // Exchange code for tokens
     const { tokens } = await oauth2Client.getToken(code);
@@ -49,18 +51,47 @@ export const gmailCallback = async (req, res) => {
 
     console.log("Connected Gmail:", email);
 
-    const { error } = await supabase.from("gmail_accounts").insert({
+    const { data: existing } = await supabase
+      .from("gmail_accounts")
+      .select("*")
+      .eq("user_id", user_id)
+      .eq("email", email)
+      .maybeSingle();
+
+    const refresh_token = tokens.refresh_token || existing?.refresh_token;
+
+    if (!refresh_token) {
+      return res.status(400).send("No refresh token received");
+    }
+
+    const payload = {
       user_id,
       email,
       access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
+      refresh_token,
       expiry_date: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
-      daily_limit: 250,
       status: "active",
-    });
-    if (error) {
-      console.error("DB ERROR:", error);
-      return res.status(500).send("Error saving account");
+    };
+
+    if (existing) {
+      const { error } = await supabase
+        .from("gmail_accounts")
+        .update(payload)
+        .eq("id", existing.id);
+
+      if (error) {
+        console.error("DB ERROR:", error);
+        return res.status(500).send("Error updating account");
+      }
+    } else {
+      const { error } = await supabase.from("gmail_accounts").insert({
+        ...payload,
+        daily_limit: 250,
+      });
+      if (error) {
+        console.error("DB ERROR:", error);
+        return res.status(500).send("Error saving account");
+      }
     }
 
     res.send(` Gmail connected Success: ${email}`);

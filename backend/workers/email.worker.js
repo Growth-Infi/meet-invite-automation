@@ -15,13 +15,20 @@ const isRetryableError = (err) => {
     (err.response?.status >= 500 && err.response?.status < 600)
   );
 };
+
+console.log("🚀 Email Worker starting...");
+console.log("REDIS_URL:", process.env.REDIS_URL ? "✅ Present" : "❌ Missing");
+
 const worker = new Worker(
   "email-queue",
   async (job) => {
-    console.log("Processing job:", job.id, job.data);
+    console.log(" Processing job:", job.id);
+
     const { recipient_id, email, campaign_id, account_id } = job.data;
 
     try {
+      console.log(" Fetching DB data...");
+
       const [recRes, campaignRes, accountRes] = await Promise.all([
         supabase
           .from("recipients_d")
@@ -36,22 +43,26 @@ const worker = new Worker(
           .single(),
       ]);
 
+      console.log("DB fetch done");
+
       const recipient = recRes.data;
       const campaign = campaignRes.data;
       const account = accountRes.data;
 
-      //email already sent
-      if (!recipient || recipient.status === "sent") return;
-
-      //  DO NOT retry these
-      if (!campaign || campaign.status === "paused") {
-        console.log(`Campaign ${campaign_id} paused. Snoozing job...`);
-        await job.moveToDelayed(Date.now() + 10 * 1000); //10sec check again from waiting queue
+      if (!recipient || recipient.status === "sent") {
+        console.log(" Already sent the mail, skipping");
         return;
       }
+
+      if (!campaign || campaign.status === "paused") {
+        console.log(` Campaign paused → delaying job`);
+        await job.moveToDelayed(Date.now() + 10 * 1000);
+        return;
+      }
+
       if (!account || account.status !== "active") {
-        console.log(`Account ${account_id} not active. Snoozing job...`);
-        await job.moveToDelayed(Date.now() + 1000); //30sec check again from waiting queue
+        console.log(` Account inactive → delaying job`);
+        await job.moveToDelayed(Date.now() + 1000);
         return;
       }
 
@@ -61,16 +72,16 @@ const worker = new Worker(
       );
 
       if (!canSend) {
-        console.log(
-          `Account ${account_id} reached daily limit. Delaying until tomorrow...`,
-        );
-        // Move to delayed for 1 hour
+        console.log(" Daily limit reached → delaying 1 hour");
         await job.moveToDelayed(Date.now() + 60 * 60 * 1000);
         return;
       }
 
-      console.log("Sending email to:", email);
+      console.log(" Sending email to:", email);
+
       await sendEmail(account, email, campaign.meet_link);
+
+      console.log("✅ Email sent");
 
       await Promise.all([
         supabase
@@ -80,17 +91,19 @@ const worker = new Worker(
         supabase.rpc("increment_campaign_sent", { campaign_id, inc: 1 }),
       ]);
 
-      await sleep(4000); //total 5 sec per job
+      console.log(" DB updated");
+
+      await sleep(4000);
     } catch (err) {
-      console.error("Worker error:", err.message);
+      console.error(" Worker error:", err.message);
 
       if (isRetryableError(err)) {
-        console.log("Rate limited → slowing down...");
-        await sleep(10000); // wait 10 sec
-        throw err; //  BullMQ retries
+        console.log(" Retryable error → retrying...");
+        await sleep(10000);
+        throw err;
       } else {
-        console.error("ERROR - Not a Rate-Limit ERROR ", err);
-        //  mark permanently failed
+        console.error(" Final failure:", err.message);
+
         await supabase
           .from("recipients_d")
           .update({
@@ -99,7 +112,7 @@ const worker = new Worker(
           })
           .eq("id", job.data.recipient_id);
 
-        return; // no retry
+        return;
       }
     }
   },
@@ -108,3 +121,18 @@ const worker = new Worker(
     concurrency: 2,
   },
 );
+worker.on("ready", () => {
+  console.log("🟢 Worker connected to Redis and ready");
+});
+
+worker.on("error", (err) => {
+  console.error("🔴 Worker connection error:", err);
+});
+
+worker.on("failed", (job, err) => {
+  console.error(`❌ Job ${job.id} failed:`, err.message);
+});
+
+worker.on("completed", (job) => {
+  console.log(`✅ Job ${job.id} completed`);
+});

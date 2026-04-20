@@ -15,7 +15,14 @@ app.use("/gmail", gmailRoutes);
 app.use("/campaign", campaignRoutes);
 
 startScheduler();
-
+app.get("/", (req, res) => {
+  res.status(200).json({
+    status: "ok",
+    service: "email-api",
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
 app.listen(5000, () => {
   console.log("Server running on port 5000");
 });
